@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { BASE_URL } from './apiService';
 
 export interface Note {
     id?: number;
@@ -6,7 +7,7 @@ export interface Note {
     createdAt?: string;
 }
 
-const API_URL = 'https://leadflow-backend-gk39.onrender.com/api/notes';
+const API_URL = `${BASE_URL}/notes`;
 
 const getAuthHeaders = () => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;

@@ -1,4 +1,4 @@
-const BASE_URL =
+export const BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || 'https://leadflow-backend-gk39.onrender.com/api';
 
 const USE_DEMO_MODE = false;

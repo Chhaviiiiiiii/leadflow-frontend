@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { LogIn, Eye, EyeOff, Mail, Lock, ArrowLeft, AlertCircle, X } from 'lucide-react';
+import { BASE_URL } from '@/app/services/apiService';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -51,7 +52,7 @@ export default function LoginPage() {
     }
 
     try {
-      const response = await fetch('https://leadflow-backend-gk39.onrender.com/api/auth/login', {
+      const response = await fetch(`${BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),

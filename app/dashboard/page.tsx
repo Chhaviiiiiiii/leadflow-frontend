@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { LeadAPI, TelegramAPI } from '@/app/services/apiService';
+import { LeadAPI, TelegramAPI, BASE_URL } from '@/app/services/apiService';
 import type { LeadDTO } from '@/app/services/apiService';
 import { noteService } from '@/app/services/noteService';
 import type { Note } from '@/app/services/noteService';
@@ -193,7 +193,7 @@ export default function DashboardPage() {
       }
       
       const jwtToken = localStorage.getItem('token');    
-      const response = await fetch('https://leadflow-backend-gk39.onrender.com/api/automation/direct-whatsapp', {
+      const response = await fetch(`${BASE_URL}/automation/direct-whatsapp`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
