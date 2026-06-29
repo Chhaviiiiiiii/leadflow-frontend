@@ -32,6 +32,12 @@ async function fetchAPI<T>(endpoint: string, options: FetchOptions = {}): Promis
   console.log("Backend Message Response Status:", response.status, response.statusText);
 
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+      }
+    }
     let errorMessage = `Request failed: ${response.status} ${response.statusText}`;
     try {
       const textData = await response.text();
