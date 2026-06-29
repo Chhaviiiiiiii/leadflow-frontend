@@ -6,6 +6,7 @@ import type { LeadDTO } from '@/app/services/apiService';
 import { noteService } from '@/app/services/noteService';
 import type { Note } from '@/app/services/noteService';
 import { useRouter } from 'next/navigation';
+import { profileService } from '@/app/services/profileService';
 import {
   Home,
   LayoutDashboard,
@@ -27,10 +28,12 @@ import {
   AlertCircle,
   ChevronDown,
   Phone,
-  FileText
+  FileText,
+  User as UserIcon,
+  Lock as LockIcon
 } from 'lucide-react';
 
-type FilterType = 'HOME' | 'ALL' | 'NEW' | 'CONTACTED' | 'CONVERTED' | 'LOST';
+type FilterType = 'HOME' | 'ALL' | 'NEW' | 'CONTACTED' | 'CONVERTED' | 'LOST' | 'PROFILE';
 
 const EMPTY_FORM = {
   id: null as string | null,
@@ -85,6 +88,7 @@ const NAV_ITEMS: {
   { filter: 'CONTACTED', label: 'Contacted', icon: <PhoneCall className="w-5 h-5" />, color: 'text-amber-300' },
   { filter: 'CONVERTED', label: 'Converted', icon: <CheckCircle className="w-5 h-5" />, color: 'text-emerald-300' },
   { filter: 'LOST', label: 'Lost', icon: <XCircle className="w-5 h-5" />, color: 'text-rose-300' },
+  { filter: 'PROFILE', label: 'Profile Settings', icon: <UserIcon className="w-5 h-5" />, color: 'text-slate-300' },
 ]; 
 
 export default function DashboardPage() {
@@ -130,6 +134,121 @@ export default function DashboardPage() {
     }, 3500);
   };
 
+  // Profile Management States
+  const [profileData, setProfileData] = useState({ name: '', email: '', phone: '' });
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [profileErrors, setProfileErrors] = useState({ name: '', email: '', phone: '' });
+  const [passwordErrors, setPasswordErrors] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
+  const fetchProfileData = async () => {
+    try {
+      setProfileLoading(true);
+      const data = await profileService.getProfile();
+      setProfileData({ name: data.name || '', email: data.email || '', phone: data.phone || '' });
+      setProfileErrors({ name: '', email: '', phone: '' });
+    } catch (error: any) {
+      console.error('Failed to fetch profile details:', error);
+      showToast('Error', 'Failed to retrieve profile configurations.', 'error');
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileErrors({ name: '', email: '', phone: '' });
+
+    let isValid = true;
+    const errors = { name: '', email: '', phone: '' };
+
+    if (!profileData.name.trim()) {
+      errors.name = 'Name is required';
+      isValid = false;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!profileData.email.trim()) {
+      errors.email = 'Email is required';
+      isValid = false;
+    } else if (!emailRegex.test(profileData.email.trim())) {
+      errors.email = 'Please enter a valid email';
+      isValid = false;
+    }
+    if (!profileData.phone.trim()) {
+      errors.phone = 'Phone number is required';
+      isValid = false;
+    }
+
+    if (!isValid) {
+      setProfileErrors(errors);
+      return;
+    }
+
+    try {
+      setProfileSaving(true);
+      const result = await profileService.updateProfile(profileData);
+      showToast('Success', 'Profile updated successfully.');
+      if (result.token) {
+        localStorage.setItem('token', result.token);
+        document.cookie = `token=${result.token}; path=/; max-age=86400; SameSite=Strict`;
+      }
+    } catch (error: any) {
+      console.error('Failed to update profile:', error);
+      const errMsg = error.response?.data?.message || 'Failed to update profile details.';
+      showToast('Error', errMsg, 'error');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordErrors({ currentPassword: '', newPassword: '', confirmPassword: '' });
+
+    let isValid = true;
+    const errors = { currentPassword: '', newPassword: '', confirmPassword: '' };
+
+    if (!passwordForm.currentPassword) {
+      errors.currentPassword = 'Current password is required';
+      isValid = false;
+    }
+    if (!passwordForm.newPassword) {
+      errors.newPassword = 'New password is required';
+      isValid = false;
+    } else if (passwordForm.newPassword.length < 6) {
+      errors.newPassword = 'Password must be at least 6 characters';
+      isValid = false;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match';
+      isValid = false;
+    }
+
+    if (!isValid) {
+      setPasswordErrors(errors);
+      return;
+    }
+
+    try {
+      setPasswordSaving(true);
+      await profileService.resetPassword({
+        currentPassword: passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword
+      });
+      showToast('Success', 'Password updated successfully.');
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (error: any) {
+      console.error('Failed to reset password:', error);
+      const errMsg = error.response?.data?.message || 'Failed to reset password.';
+      showToast('Error', errMsg, 'error');
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
@@ -161,6 +280,12 @@ export default function DashboardPage() {
     fetchDashboardData();
     fetchNotesData();
 }, []);
+
+  useEffect(() => {
+    if (filter === 'PROFILE') {
+      fetchProfileData();
+    }
+  }, [filter]);
   const filteredLeads = leads.filter((l) => {
     const isHomeSearching = filter === 'HOME' && search.trim() !== '';
     
@@ -533,158 +658,335 @@ export default function DashboardPage() {
         )}
 
         <header className="bg-white border-b border-slate-100 px-4 py-4 sm:px-6 flex items-center justify-between gap-3 sticky top-0 z-20 flex-shrink-0">
-          <div className="flex items-center gap-2 flex-1 max-w-xs sm:max-w-md">
-            <button type="button" onClick={() => setSidebarOpen(true)} className="md:hidden p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg flex-shrink-0">
-              <BarChart2 className="w-5 h-5" />
-            </button>
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
-              />
+          {filter === 'PROFILE' ? (
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setSidebarOpen(true)} className="md:hidden p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg flex-shrink-0">
+                <BarChart2 className="w-5 h-5" />
+              </button>
+              <h2 className="text-base sm:text-lg font-bold text-slate-800">Profile Settings</h2>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 flex-1 max-w-xs sm:max-w-md">
+                <button type="button" onClick={() => setSidebarOpen(true)} className="md:hidden p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded-lg flex-shrink-0">
+                  <BarChart2 className="w-5 h-5" />
+                </button>
+                <div className="relative w-full">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                  />
+                </div>
+              </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                setNoteForm({ id: null, content: '' });
-                setNotesTab('view');
-                setIsNotesModalOpen(true);
-              }}
-              className="flex items-center gap-1 sm:gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold border border-slate-200 transition-colors"
-            >
-              <FileText className="w-3.5 h-3.5 text-indigo-600" />
-              <span className="hidden xs:inline">Notes</span>
-            </button>
+              <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNoteForm({ id: null, content: '' });
+                    setNotesTab('view');
+                    setIsNotesModalOpen(true);
+                  }}
+                  className="flex items-center gap-1 sm:gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold border border-slate-200 transition-colors"
+                >
+                  <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                  <span className="hidden xs:inline">Notes</span>
+                </button>
 
-            <button type="button" onClick={openCreate} className="flex items-center gap-1 sm:gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition-colors">
-              <Plus className="w-3.5 h-3.5" />
-              <span>New Lead</span>
-            </button>
-          </div>
+                <button type="button" onClick={openCreate} className="flex items-center gap-1 sm:gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-2 sm:px-4 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold shadow-md transition-colors">
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>New Lead</span>
+                </button>
+              </div>
+            </>
+          )}
         </header>
 
         <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 mb-6">
-            <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Total Leads</p>
-                <h3 className="text-xl sm:text-2xl font-extrabold text-slate-800 mt-1">{counts.ALL}</h3>
-              </div>
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
-                <LayoutDashboard className="w-5 h-5 sm:w-6 sm:h-6" />
-              </div>
-            </div>
+          {filter !== 'PROFILE' && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 mb-6">
+                <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Total Leads</p>
+                    <h3 className="text-xl sm:text-2xl font-extrabold text-slate-800 mt-1">{counts.ALL}</h3>
+                  </div>
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
+                    <LayoutDashboard className="w-5 h-5 sm:w-6 sm:h-6" />
+                  </div>
+                </div>
 
-            <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Converted Leads</p>
-                <h3 className="text-xl sm:text-2xl font-extrabold text-slate-800 mt-1">{counts.CONVERTED}</h3>
-              </div>
-              <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
-                <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6" />
-              </div>
-            </div>
-          </div>
-
-          {(filter !== 'HOME' || search.trim() !== '') && (
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden animate-fade-in">
-              <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-100 flex items-center justify-between">
-                <h2 className="font-bold text-sm sm:text-base text-slate-900">
-                  {filter === 'HOME' ? 'Search Results' : filter === 'ALL' ? 'All Leads' : STATUS_CONFIG[filter]?.label + ' Leads'}
-                </h2>
-                {search && (
-                  <button type="button" onClick={() => setSearch('')} className="text-xs text-slate-400 hover:text-slate-700 flex items-center gap-1">
-                    <X className="w-3 h-3" /> Clear search
-                  </button>
-                )}
+                <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">Converted Leads</p>
+                    <h3 className="text-xl sm:text-2xl font-extrabold text-slate-800 mt-1">{counts.CONVERTED}</h3>
+                  </div>
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+                    <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6" />
+                  </div>
+                </div>
               </div>
 
-              <div className="w-full overflow-x-auto">
-                <table className="w-full text-left border-collapse block md:table min-w-full">
-                  <thead className="hidden md:table-header-group">
-                    <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
-                      <th className="w-[25%] px-6 py-3 font-semibold border-b border-slate-100">Name</th>
-                      <th className="w-[25%] px-4 py-3 font-semibold border-b border-slate-100">Email</th>
-                      <th className="w-[18%] px-4 py-3 font-semibold border-b border-slate-100">Phone</th>
-                      <th className="w-[12%] px-4 py-3 font-semibold border-b border-slate-100">Source</th>
-                      <th className="w-[10%] px-4 py-3 font-semibold border-b border-slate-100">Status</th>
-                      <th className="w-[10%] pr-6 py-3 font-semibold border-b border-slate-100 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs sm:text-sm block md:table-row-group">
-                    {filteredLeads.length === 0 ? (
-                      <tr className="block md:table-row">
-                        <td colSpan={6} className="px-6 py-12 text-center block md:table-cell">
-                          <div className="flex flex-col items-center gap-2 text-slate-400">
-                            <Users className="w-8 h-8 opacity-30" />
-                            <p className="font-semibold text-slate-500">No leads found</p>
-                            <p className="text-xs">{search ? 'Try a different search term' : 'Create your first lead to get started'}</p>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredLeads.map((lead) => {
-                        const st = STATUS_CONFIG[lead.status];
-                        return (
-                          <tr key={lead.id} className="hover:bg-slate-50/70 transition-colors block md:table-row p-4 md:p-0 border-b border-slate-100 md:border-b-0 space-y-2 md:space-y-0 relative">
-                            <td className="px-0 md:px-6 py-1 md:py-3.5 block md:table-cell font-medium text-slate-900">
-                              <div className="flex items-center gap-3">
-                                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] sm:text-xs font-bold flex-shrink-0">
-                                  {lead.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="font-bold md:font-semibold text-slate-900 text-xs sm:text-sm truncate">{lead.name}</p>
-                                  <p className="text-[10px] text-slate-400">{lead.createdAt || 'Just now'}</p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-0 md:px-4 py-0.5 md:py-3.5 block md:table-cell text-slate-600 truncate">
-                              <span className="inline-block md:hidden text-[10px] font-bold text-slate-400 uppercase w-16">Email: </span>
-                              {lead.email ? (
-                                <a href={`mailto:${lead.email}`} className="hover:text-indigo-600 hover:underline text-xs sm:text-sm">{lead.email}</a>
-                              ) : (
-                                <span className="text-slate-400 italic text-xs">None</span>
-                              )}
-                            </td>
-                            <td className="px-0 md:px-4 py-0.5 md:py-3.5 block md:table-cell text-slate-600">
-                              <span className="inline-block md:hidden text-[10px] font-bold text-slate-400 uppercase w-16">Phone: </span>
-                              <a href={`tel:${lead.phone}`} className="hover:text-indigo-600 text-xs sm:text-sm">{lead.phone}</a>
-                            </td>
-                            <td className="px-0 md:px-4 py-0.5 md:py-3.5 block md:table-cell text-slate-500 text-xs sm:text-sm">
-                              <span className="inline-block md:hidden text-[10px] font-bold text-slate-400 uppercase w-16">Source: </span>
-                              {lead.source || 'Direct'}
-                            </td>
-                            <td className="px-0 md:px-4 py-1 md:py-3.5 block md:table-cell">
-                              <span className="inline-block md:hidden text-[10px] font-bold text-slate-400 uppercase w-16 vertical-middle mr-1">Status: </span>
-                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${st.bg} ${st.color}`}>{st.label}</span>
-                            </td>
-                            <td className="px-0 md:px-6 py-2 md:py-3.5 block md:table-cell md:text-right">
-                              <div className="flex items-center justify-start md:justify-end gap-1.5 mt-2 md:mt-0 border-t border-slate-100 pt-2 md:pt-0 md:border-t-0">
-                                <button type="button" onClick={() => openMessageModal(lead)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
-                                  <MessageSquare className="w-4 h-4" />
-                                </button>
-                                <button type="button" onClick={() => openEdit(lead)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button type="button" onClick={() => lead.id && openDeleteModal(lead)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+              {(filter !== 'HOME' || search.trim() !== '') && (
+                <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden animate-fade-in">
+                  <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-100 flex items-center justify-between">
+                    <h2 className="font-bold text-sm sm:text-base text-slate-900">
+                      {filter === 'HOME' ? 'Search Results' : filter === 'ALL' ? 'All Leads' : STATUS_CONFIG[filter]?.label + ' Leads'}
+                    </h2>
+                    {search && (
+                      <button type="button" onClick={() => setSearch('')} className="text-xs text-slate-400 hover:text-slate-700 flex items-center gap-1">
+                        <X className="w-3 h-3" /> Clear search
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="w-full overflow-x-auto">
+                    <table className="w-full text-left border-collapse block md:table min-w-full">
+                      <thead className="hidden md:table-header-group">
+                        <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider">
+                          <th className="w-[25%] px-6 py-3 font-semibold border-b border-slate-100">Name</th>
+                          <th className="w-[25%] px-4 py-3 font-semibold border-b border-slate-100">Email</th>
+                          <th className="w-[18%] px-4 py-3 font-semibold border-b border-slate-100">Phone</th>
+                          <th className="w-[12%] px-4 py-3 font-semibold border-b border-slate-100">Source</th>
+                          <th className="w-[10%] px-4 py-3 font-semibold border-b border-slate-100">Status</th>
+                          <th className="w-[10%] pr-6 py-3 font-semibold border-b border-slate-100 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs sm:text-sm block md:table-row-group">
+                        {filteredLeads.length === 0 ? (
+                          <tr className="block md:table-row">
+                            <td colSpan={6} className="px-6 py-12 text-center block md:table-cell">
+                              <div className="flex flex-col items-center gap-2 text-slate-400">
+                                <Users className="w-8 h-8 opacity-30" />
+                                <p className="font-semibold text-slate-500">No leads found</p>
+                                <p className="text-xs">{search ? 'Try a different search term' : 'Create your first lead to get started'}</p>
                               </div>
                             </td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                        ) : (
+                          filteredLeads.map((lead) => {
+                            const st = STATUS_CONFIG[lead.status];
+                            return (
+                              <tr key={lead.id} className="hover:bg-slate-50/70 transition-colors block md:table-row p-4 md:p-0 border-b border-slate-100 md:border-b-0 space-y-2 md:space-y-0 relative">
+                                <td className="px-0 md:px-6 py-1 md:py-3.5 block md:table-cell font-medium text-slate-900">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] sm:text-xs font-bold flex-shrink-0">
+                                      {lead.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-bold md:font-semibold text-slate-900 text-xs sm:text-sm truncate">{lead.name}</p>
+                                      <p className="text-[10px] text-slate-400">{lead.createdAt || 'Just now'}</p>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-0 md:px-4 py-0.5 md:py-3.5 block md:table-cell text-slate-600 truncate">
+                                  <span className="inline-block md:hidden text-[10px] font-bold text-slate-400 uppercase w-16">Email: </span>
+                                  {lead.email ? (
+                                    <a href={`mailto:${lead.email}`} className="hover:text-indigo-600 hover:underline text-xs sm:text-sm">{lead.email}</a>
+                                  ) : (
+                                    <span className="text-slate-400 italic text-xs">None</span>
+                                  )}
+                                </td>
+                                <td className="px-0 md:px-4 py-0.5 md:py-3.5 block md:table-cell text-slate-600">
+                                  <span className="inline-block md:hidden text-[10px] font-bold text-slate-400 uppercase w-16">Phone: </span>
+                                  <a href={`tel:${lead.phone}`} className="hover:text-indigo-600 text-xs sm:text-sm">{lead.phone}</a>
+                                </td>
+                                <td className="px-0 md:px-4 py-0.5 md:py-3.5 block md:table-cell text-slate-500 text-xs sm:text-sm">
+                                  <span className="inline-block md:hidden text-[10px] font-bold text-slate-400 uppercase w-16">Source: </span>
+                                  {lead.source || 'Direct'}
+                                </td>
+                                <td className="px-0 md:px-4 py-1 md:py-3.5 block md:table-cell">
+                                  <span className="inline-block md:hidden text-[10px] font-bold text-slate-400 uppercase w-16 vertical-middle mr-1">Status: </span>
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${st.bg} ${st.color}`}>{st.label}</span>
+                                </td>
+                                <td className="px-0 md:px-6 py-2 md:py-3.5 block md:table-cell md:text-right">
+                                  <div className="flex items-center justify-start md:justify-end gap-1.5 mt-2 md:mt-0 border-t border-slate-100 pt-2 md:pt-0 md:border-t-0">
+                                    <button type="button" onClick={() => openMessageModal(lead)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                                      <MessageSquare className="w-4 h-4" />
+                                    </button>
+                                    <button type="button" onClick={() => openEdit(lead)} className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                                      <Edit2 className="w-4 h-4" />
+                                    </button>
+                                    <button type="button" onClick={() => lead.id && openDeleteModal(lead)} className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors">
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {filter === 'PROFILE' && (
+            <div className="max-w-4xl mx-auto space-y-8 animate-fade-in pb-12">
+              {profileLoading ? (
+                <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+                  <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="mt-4 text-sm font-semibold">Loading profile details...</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {/* Edit Profile Details */}
+                  <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-100 shadow-xl space-y-6">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800">Account Details</h3>
+                      <p className="text-xs text-slate-400 mt-1">Update your basic profile information</p>
+                    </div>
+
+                    <form onSubmit={handleUpdateProfile} className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">Full Name</label>
+                        <input
+                          type="text"
+                          value={profileData.name}
+                          onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 placeholder-slate-400 transition-all"
+                        />
+                        {profileErrors.name && <p className="text-rose-500 text-xs mt-1 font-semibold">{profileErrors.name}</p>}
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">Email Address</label>
+                        <input
+                          type="email"
+                          value={profileData.email}
+                          onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 placeholder-slate-400 transition-all"
+                        />
+                        <p className="text-[10px] text-amber-500 font-semibold mt-1">⚠️ Note: Changing email updates your login credentials and session.</p>
+                        {profileErrors.email && <p className="text-rose-500 text-xs mt-1 font-semibold">{profileErrors.email}</p>}
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">Phone Number</label>
+                        <input
+                          type="text"
+                          value={profileData.phone}
+                          onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 placeholder-slate-400 transition-all"
+                        />
+                        {profileErrors.phone && <p className="text-rose-500 text-xs mt-1 font-semibold">{profileErrors.phone}</p>}
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={profileSaving}
+                        className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition-colors shadow-md flex items-center justify-center gap-2"
+                      >
+                        {profileSaving ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Saving Changes...</span>
+                          </>
+                        ) : (
+                          <span>Save Changes</span>
+                        )}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Reset Password Card */}
+                  {!showPasswordForm ? (
+                    <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-100 shadow-xl flex flex-col justify-center items-center text-center space-y-4 min-h-[300px]">
+                      <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600">
+                        <LockIcon className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-800">Security</h3>
+                        <p className="text-xs text-slate-400 mt-1">Keep your account safe by updating your password regularly</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswordForm(true)}
+                        className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition-colors shadow-md"
+                      >
+                        Change Password
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-100 shadow-xl space-y-6">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-800">Change Password</h3>
+                          <p className="text-xs text-slate-400 mt-1">Update your password details</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowPasswordForm(false);
+                            setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                            setPasswordErrors({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                          }}
+                          className="text-xs text-slate-400 hover:text-slate-600 font-bold border border-slate-200 rounded-lg px-2.5 py-1 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+
+                      <form onSubmit={handleResetPassword} className="space-y-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">Current Password</label>
+                          <input
+                            type="password"
+                            value={passwordForm.currentPassword}
+                            onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 placeholder-slate-400 transition-all"
+                          />
+                          {passwordErrors.currentPassword && <p className="text-rose-500 text-xs mt-1 font-semibold">{passwordErrors.currentPassword}</p>}
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">New Password</label>
+                          <input
+                            type="password"
+                            value={passwordForm.newPassword}
+                            onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 placeholder-slate-400 transition-all"
+                          />
+                          {passwordErrors.newPassword && <p className="text-rose-500 text-xs mt-1 font-semibold">{passwordErrors.newPassword}</p>}
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-700 uppercase tracking-wider mb-1">Confirm New Password</label>
+                          <input
+                            type="password"
+                            value={passwordForm.confirmPassword}
+                            onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-900 placeholder-slate-400 transition-all"
+                          />
+                          {passwordErrors.confirmPassword && <p className="text-rose-500 text-xs mt-1 font-semibold">{passwordErrors.confirmPassword}</p>}
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={passwordSaving}
+                          className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition-colors shadow-md flex items-center justify-center gap-2"
+                        >
+                          {passwordSaving ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              <span>Updating Password...</span>
+                            </>
+                          ) : (
+                            <span>Update Password</span>
+                          )}
+                        </button>
+                      </form>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
